@@ -1,0 +1,7 @@
+{
+  "name": "ThaiMed AI - Thai Traditional Medicine Expert",
+  "description": "An AI-powered Thai Traditional Medicine (TTM) diagnostic tool based on the 4 Samutthan (Causes of Disease): Element, Season, Age, and Time.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
