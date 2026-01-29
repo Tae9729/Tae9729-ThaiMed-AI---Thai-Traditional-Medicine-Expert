@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, SymptomRecord, WeatherData, DiagnosisResult, TTMSeason, Language } from './types';
 import { getBirthElement, getCurrentTTMSeason } from './utils/ttmCalculators';
 import { analyzeSymptoms } from './services/geminiService';
 import { translations } from './translations';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const COMMON_SYMPTOMS = [
   { th: "ปวดศีรษะ", en: "Headache" },
@@ -41,6 +43,7 @@ const App: React.FC = () => {
   });
 
   const [diagnosis, setDiagnosis] = useState<DiagnosisResult | null>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const t = translations[lang];
 
@@ -87,12 +90,37 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current) return;
+    setLoading(true);
+    try {
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: [canvas.width / 2, canvas.height / 2],
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
+      pdf.save(`ThaiMed_Report_${profile.name || 'Anonymous'}.pdf`);
+    } catch (error) {
+      console.error('PDF Generation failed', error);
+      alert(lang === 'th' ? "การสร้าง PDF ล้มเหลว" : "PDF generation failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleLang = () => setLang(prev => prev === 'th' ? 'en' : 'th');
 
   return (
     <div className="min-h-screen pb-20">
       {/* Header */}
-      <header className="ttm-gradient text-white p-6 shadow-lg sticky top-0 z-50">
+      <header className="ttm-gradient text-white p-6 shadow-lg sticky top-0 z-50 no-print">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-white/20 p-2 rounded-lg">
@@ -122,7 +150,7 @@ const App: React.FC = () => {
 
       <main className="max-w-4xl mx-auto p-4 mt-6">
         {/* Progress Stepper */}
-        <div className="mb-8 flex justify-between px-2">
+        <div className="mb-8 flex justify-between px-2 no-print">
           {[1, 2, 3, 4].map((s) => (
             <div key={s} className="flex flex-col items-center">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors ${
@@ -273,23 +301,25 @@ const App: React.FC = () => {
                     <div className="w-12 h-12 rounded-full bg-orange-500 text-white flex items-center justify-center text-xl">
                       <i className="fas fa-thermometer-half"></i>
                     </div>
-                    <div>
+                    <div className="text-gray-900">
                       <p className="text-xs text-orange-600 font-bold">{t.temperature}</p>
-                      <input 
-                        type="number" 
-                        value={weather.temp}
-                        onChange={(e) => setWeather(prev => ({ ...prev, temp: parseInt(e.target.value) }))}
-                        className="bg-transparent text-xl font-bold w-16 outline-none"
-                      /> °C
+                      <div className="flex items-center">
+                        <input 
+                          type="number" 
+                          value={weather.temp}
+                          onChange={(e) => setWeather(prev => ({ ...prev, temp: parseInt(e.target.value) }))}
+                          className="bg-transparent text-xl font-bold w-16 outline-none text-gray-900"
+                        /> <span className="text-xl font-bold text-gray-900">°C</span>
+                      </div>
                     </div>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center text-xl">
                       <i className="fas fa-wind"></i>
                     </div>
-                    <div>
+                    <div className="text-gray-900">
                       <p className="text-xs text-blue-600 font-bold">{t.currentSeason}</p>
-                      <p className="text-xl font-bold">{weather.season}</p>
+                      <p className="text-xl font-bold text-gray-900">{weather.season}</p>
                     </div>
                   </div>
                 </div>
@@ -325,9 +355,37 @@ const App: React.FC = () => {
         {/* Step 4: Results */}
         {step === 4 && diagnosis && (
           <div className="space-y-6 animate-in fade-in zoom-in-95 duration-700">
-            <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-32 h-32 ttm-gradient opacity-5 rounded-bl-full"></div>
+            <div ref={reportRef} className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 relative overflow-hidden report-pdf-container">
+               <div className="absolute top-0 right-0 w-32 h-32 ttm-gradient opacity-5 rounded-bl-full no-print"></div>
               
+              {/* Patient Info Header - For Report */}
+              <div className="border-b border-gray-200 pb-6 mb-8">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-green-600 text-white p-2 rounded-lg">
+                    <i className="fas fa-file-medical"></i>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800">{lang === 'th' ? 'รายงานข้อมูลผู้ป่วย' : 'Patient Medical Report'}</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                   <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t.fullName}</p>
+                      <p className="font-semibold text-gray-800">{profile.name}</p>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t.gender}</p>
+                      <p className="font-semibold text-gray-800">{profile.gender === 'Male' ? t.male : profile.gender === 'Female' ? t.female : t.other}</p>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t.birthDate}</p>
+                      <p className="font-semibold text-gray-800">{profile.birthDate}</p>
+                   </div>
+                   <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{lang === 'th' ? 'เวลาบันทึก' : 'Report Time'}</p>
+                      <p className="font-semibold text-gray-800">{new Date().toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')}</p>
+                   </div>
+                </div>
+              </div>
+
               <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
                 <div>
                   <h2 className="text-3xl font-black text-gray-900 leading-tight">{t.diagnosisSummary}</h2>
@@ -411,12 +469,14 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-4 no-print">
               <button 
-                onClick={() => window.print()}
-                className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                onClick={handleDownloadPDF}
+                disabled={loading}
+                className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-bold hover:bg-gray-200 transition-all flex items-center justify-center gap-2 shadow-sm"
               >
-                <i className="fas fa-print"></i> {t.printReport}
+                {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-pdf"></i>}
+                {t.printReport} (PDF)
               </button>
               <button 
                 onClick={() => setStep(1)}
@@ -426,7 +486,7 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="bg-red-50 p-6 rounded-2xl border border-red-100 flex items-start gap-4">
+            <div className="bg-red-50 p-6 rounded-2xl border border-red-100 flex items-start gap-4 no-print">
               <i className="fas fa-exclamation-triangle text-red-600 text-xl mt-1"></i>
               <p className="text-sm text-red-800 leading-relaxed">
                 <strong className="block mb-1">{t.notice}</strong>
@@ -438,7 +498,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Floating Action for Doctor View */}
-      <div className="fixed bottom-6 right-6">
+      <div className="fixed bottom-6 right-6 no-print">
         <button 
           title={t.physicianPortal}
           className="bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform ring-4 ring-white"
